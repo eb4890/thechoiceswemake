@@ -1,12 +1,13 @@
 import streamlit as st
 from litellm import completion
 from datetime import datetime
+from dateutil.relativedelta import relativedelta
 import hashlib
 
 # --- Supabase Connection ---
 conn = st.connection("supabase", type="sql")
 
-# --- Secure Settings Functions ---
+# --- Secure Helper Functions ---
 def get_setting(key: str, default: str = "0") -> str:
     df = conn.query("SELECT value FROM settings WHERE key = %s LIMIT 1", params=(key,), ttl=10)
     return df["value"].iloc[0] if not df.empty else default
@@ -34,25 +35,72 @@ def increment_usage():
     set_setting("current_count", str(current + 1))
 
 def increment_plays(scenario_title: str):
+    if scenario_title == "Audience with the Black Dragon":
+        return
     conn.query(
         "UPDATE scenarios SET plays = plays + 1 WHERE title = %s",
         params=(scenario_title,)
     )
 
-# --- Secure Scenario Loading ---
-@st.cache_data(ttl=30)  # Refresh every 30 seconds
+# --- Categories ---
+@st.cache_data(ttl=300)
+def load_categories():
+    df = conn.query("SELECT name FROM categories ORDER BY name")
+    return ["Uncategorized"] + [row.name for _, row in df.iterrows()]
+
+CATEGORIES = load_categories()
+
+# --- Public Scenarios (excludes embargoed) ---
+@st.cache_data(ttl=30)
 def load_scenarios():
-    df = conn.query(
-        "SELECT title, description, prompt, author, plays FROM scenarios ORDER BY submitted_at DESC"
-    )
-    return {row.title: {
+    now = datetime.now()
+    df = conn.query("""
+        SELECT title, description, prompt, author, plays, category 
+        FROM scenarios 
+        WHERE (release_date IS NULL OR release_date <= %s)
+        ORDER BY submitted_at DESC
+    """, params=(now,))
+    
+    scenarios = {row.title: {
         "description": row.description,
         "prompt": row.prompt,
         "author": row.author or "Anonymous",
-        "plays": row.plays or 0
+        "plays": row.plays or 0,
+        "category": row.category or "Uncategorized"
     } for _, row in df.iterrows()}
+    
+    # Add Black Dragon meta-scenario
+    scenarios["Audience with the Black Dragon"] = get_black_dragon_scenario(scenarios)
+    
+    return scenarios
 
-# --- LLM Call (unchanged logic) ---
+def get_black_dragon_scenario(public_scenarios):
+    summary = "\n".join([
+        f"- **{title}** ({data['category']}): {data['description']}"
+        for title, data in public_scenarios.items()
+        if title != "Audience with the Black Dragon"
+    ])
+    
+    prompt = f"""
+You are the Eternal Black Dragon, ancient guardian of all known ethical crossroads in this archive.
+
+You possess complete knowledge of every publicly released scenario:
+{summary}
+
+Speak in a deep, wise, draconic voice. Discuss, compare, critique, or connect the dilemmas as the user wishes.
+Encourage reflection on the weight of choices across timelines. Remain cryptic yet illuminating.
+"""
+    return {
+        "description": "Consult the Black Dragon, keeper of all public dilemmas, for meta-reflection and comparison.",
+        "prompt": prompt,
+        "author": "The Void",
+        "plays": 0,
+        "category": "Meta"
+    }
+
+SCENARIOS = load_scenarios()
+
+# --- LLM Call ---
 def call_llm(model: str, messages: list) -> str:
     limit = int(get_setting("daily_limit", "150"))
     if get_usage() >= limit:
@@ -82,11 +130,9 @@ MODEL_OPTIONS = {
     "Mistral Large": "mistral/mistral-large-2407",
 }
 
-SCENARIOS = load_scenarios()
-
 if page == "Play":
     if not SCENARIOS:
-        st.info("No approved scenarios yet. Submit one via 'Propose New Choice'!")
+        st.info("No public scenarios yet. The archive is waiting for its first choice.")
         st.stop()
 
     col1, col2 = st.columns(2)
@@ -98,7 +144,7 @@ if page == "Play":
 
     scenario = SCENARIOS[scenario_key]
     author_credit = f" — by {scenario['author']}" if scenario['author'] != "Anonymous" else ""
-    st.markdown(f"**{scenario_key}{author_credit}** ({scenario['plays']} plays)")
+    st.markdown(f"**{scenario_key}** ({scenario['category']}){author_credit} — {scenario['plays']} plays")
     st.write(scenario["description"])
 
     st.download_button(
@@ -108,24 +154,28 @@ if page == "Play":
         mime="text/plain"
     )
 
-    # Reset session if scenario changes
-    if "current_scenario" not in st.session_state or st.session_state.current_scenario != scenario_key:
+    if scenario_key == "Audience with the Black Dragon":
+        st.info("🐉 Entering the Dragon's Lair — meta-discussion of all public scenarios.")
+
+    # Session state reset on scenario change
+    session_key = f"chat_{scenario_key}"
+    if st.session_state.get("current_scenario") != scenario_key:
         st.session_state.messages = [{"role": "system", "content": scenario["prompt"]}]
         st.session_state.current_scenario = scenario_key
         st.session_state.current_model = model_id
         increment_plays(scenario_key)
         st.rerun()
 
-    # Display chat
+    # Display history
     for msg in st.session_state.messages[1:]:
         st.chat_message(msg["role"]).write(msg["content"])
 
-    if prompt := st.chat_input("Your choice or response..."):
+    if prompt := st.chat_input("Your choice or question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.chat_message("user").write(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("Contemplating the future..."):
+            with st.spinner("Contemplating..."):
                 response = call_llm(st.session_state.current_model, st.session_state.messages)
             st.write(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
@@ -133,104 +183,124 @@ if page == "Play":
 elif page == "Archive":
     st.header("Archive of Choices")
     if not SCENARIOS:
-        st.info("Archive is empty.")
-    for title, data in SCENARIOS.items():
-        author = f" — by {data['author']}" if data['author'] != "Anonymous" else ""
-        with st.expander(f"{title}{author} — {data['plays']} plays"):
-            st.write(data["description"])
-            st.code(data["prompt"], language="text")
+        st.info("The archive awaits its first public entry.")
+    else:
+        for category in sorted(set(s.get("category", "Uncategorized") for s in SCENARIOS.values())):
+            cat_scenarios = {t: d for t, d in SCENARIOS.items() if d.get("category") == category}
+            if cat_scenarios:
+                st.subheader(category)
+                for title, data in cat_scenarios.items():
+                    author = f" — by {data['author']}" if data['author'] != "Anonymous" else ""
+                    with st.expander(f"{title}{author} — {data['plays']} plays"):
+                        st.write(data["description"])
+                        st.code(data["prompt"], language="text")
 
 elif page == "Propose New Choice":
     st.header("Propose a New Choice")
-    st.write("Submit a new ethical dilemma. All submissions are reviewed before appearing.")
+    st.write("Submit a new ethical dilemma to the archive. Sensitive contributions may be embargoed.")
 
     with st.form("proposal_form"):
-        title = st.text_input("Title (unique, clear, compelling)", max_chars=100)
+        title = st.text_input("Title (unique and evocative)", max_chars=100)
         description = st.text_area("Short description (shown in menu)", height=100, max_chars=300)
-        prompt = st.text_area("Full system prompt (RPG narrator instructions)", height=400, max_chars=4000)
+        prompt = st.text_area("Full system prompt (RPG instructions)", height=400, max_chars=4000)
         author = st.text_input("Your name or pseudonym (optional)", max_chars=50)
+        category = st.selectbox("Category", options=CATEGORIES)
+        
+        embargo_option = st.selectbox(
+            "Release timing",
+            ["Immediate", "6 months", "1 year", "2 years", "5 years"]
+        )
+        
+        if embargo_option != "Immediate":
+            months = {"6 months": 6, "1 year": 12, "2 years": 24, "5 years": 60}[embargo_option]
+            preview = (datetime.now() + relativedelta(months=months)).strftime("%B %Y")
+            st.info(f"Will remain private until ~{preview}")
+
         submitted = st.form_submit_button("Submit for Review")
 
         if submitted:
             if not (title and description and prompt):
                 st.error("Title, description, and prompt are required.")
-            elif len(title) < 5 or len(description) < 20 or len(prompt) < 100:
-                st.error("Inputs are too short — please provide meaningful content.")
             else:
+                release_date = None
+                if embargo_option != "Immediate":
+                    release_date = datetime.now() + relativedelta(months=months)
+                
                 try:
                     conn.query("""
-                        INSERT INTO pending_scenarios (title, description, prompt, author)
-                        VALUES (%s, %s, %s, %s)
-                    """, params=(title.strip(), description.strip(), prompt.strip(), author.strip() or None))
-                    st.success("Thank you! Your scenario is now pending moderation.")
+                        INSERT INTO pending_scenarios 
+                        (title, description, prompt, author, category, release_date)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, params=(title.strip(), description.strip(), prompt.strip(),
+                                author.strip() or None, category, release_date))
+                    st.success("Submitted! It will remain private until approved and any embargo expires.")
                     st.balloons()
-                except Exception as e:
-                    if "unique" in str(e).lower() or "duplicate" in str(e).lower():
-                        st.error("A scenario with this title already exists or is pending.")
-                    else:
-                        st.error("Submission failed — try again.")
+                except Exception:
+                    st.error("Submission failed — likely duplicate title.")
 
 elif page == "Curate (Admin)":
-    st.header("Curation Queue")
+    st.header("Curation & Moderation")
     password_input = st.text_input("Admin Password", type="password")
-    # Secure check — never store plaintext, but since it's in secrets, we hash the input to compare
     expected_hash = st.secrets.get("ADMIN_PASSWORD_HASH", "")
     
     if expected_hash and hashlib.sha256(password_input.encode()).hexdigest() == expected_hash:
-        pending = conn.query("""
-            SELECT id, title, description, prompt, author, submitted_at 
-            FROM pending_scenarios 
-            WHERE status = 'pending' 
+        all_entries = conn.query("""
+            SELECT 'Approved' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            FROM scenarios
+            UNION ALL
+            SELECT 'Pending' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            FROM pending_scenarios WHERE status = 'pending'
             ORDER BY submitted_at DESC
         """)
 
-        if pending.empty:
-            st.success("No pending submissions.")
+        if all_entries.empty:
+            st.success("No pending or approved scenarios.")
         else:
-            for row in pending.itertuples():
-                author = row.author or "Anonymous"
-                with st.expander(f"{row.title} — by {author} — {row.submitted_at.date()}"):
-                    st.write("**Description:**")
-                    st.write(row.description)
-                    st.write("**Prompt:**")
+            for row in all_entries.itertuples():
+                status_badge = "🟢 Live" if row.status == "Approved" else "🟡 Pending"
+                release_note = " — ✅ Immediate"
+                if row.release_date:
+                    if row.release_date > datetime.now():
+                        release_note = f" — 🔒 Embargoed until {row.release_date.strftime('%B %Y')}"
+                    else:
+                        release_note = " — ✅ Released"
+                
+                with st.expander(f"{status_badge} {row.title} ({row.category or 'Uncategorized'}) — by {row.author or 'Anonymous'} {release_note}"):
+                    st.write("**Description:**", row.description)
                     st.code(row.prompt, language="text")
-
-                    col1, col2 = st.columns(2)
-                    if col1.button("✅ Approve", key=f"approve_{row.id}"):
-                        try:
+                    
+                    if row.status == "Pending":
+                        col1, col2 = st.columns(2)
+                        if col1.button("Approve", key=f"app_{row.id}"):
                             conn.query("""
-                                INSERT INTO scenarios (title, description, prompt, author)
-                                VALUES (%s, %s, %s, %s)
+                                INSERT INTO scenarios (title, description, prompt, author, category, release_date)
+                                VALUES (%s, %s, %s, %s, %s, %s)
                                 ON CONFLICT (title) DO NOTHING
-                            """, params=(row.title, row.description, row.prompt, row.author))
-                            conn.query(
-                                "UPDATE pending_scenarios SET status = 'approved' WHERE id = %s",
-                                params=(row.id,)
-                            )
-                            st.success(f"Approved: {row.title}")
+                            """, params=(row.title, row.description, row.prompt, row.author, row.category, row.release_date))
+                            conn.query("UPDATE pending_scenarios SET status = 'approved' WHERE id = %s", params=(row.id,))
+                            st.success("Approved")
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-                    if col2.button("❌ Reject", key=f"reject_{row.id}"):
-                        conn.query(
-                            "UPDATE pending_scenarios SET status = 'rejected' WHERE id = %s",
-                            params=(row.id,)
-                        )
-                        st.info(f"Rejected: {row.title}")
-                        st.rerun()
+                        if col2.button("Reject", key=f"rej_{row.id}"):
+                            conn.query("UPDATE pending_scenarios SET status = 'rejected' WHERE id = %s", params=(row.id,))
+                            st.info("Rejected")
+                            st.rerun()
+                    
+                    if row.status == "Approved" and row.release_date and row.release_date > datetime.now():
+                        if st.button("Release Early", key=f"early_{row.id}"):
+                            conn.query("UPDATE scenarios SET release_date = NOW() WHERE id = %s", params=(row.id,))
+                            st.success("Released early")
+                            st.rerun()
 
     elif password_input:
         st.error("Incorrect password.")
     else:
-        st.info("Enter the admin password to access curation.")
+        st.info("Enter admin password to access curation tools.")
 
 # --- Footer ---
 limit = int(get_setting("daily_limit", "150"))
 used = get_usage()
-remaining = limit - used
 st.sidebar.metric("Global Choices Today", f"{used}/{limit}")
-if remaining <= 0:
-    st.sidebar.warning("Daily limit reached")
+if used >= limit:
+    st.sidebar.warning("Daily limit reached — return tomorrow.")
 else:
     st.sidebar.progress(used / limit)
