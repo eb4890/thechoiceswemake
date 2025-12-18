@@ -1,5 +1,10 @@
 FROM python:3.9-slim
 
+WORKDIR /app
+
+# Copy the current directory contents to /app in the container
+COPY . /app
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
