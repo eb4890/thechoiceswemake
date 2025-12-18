@@ -6,29 +6,21 @@ import hashlib
 import os
 from dotenv import load_dotenv
 
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://choices_user:your_very_strong_password_here@localhost:5433/choices_archive")
+
 load_dotenv()
 
 # Prioritize st.secrets (Streamlit Cloud), fallback to .env
-supabase_url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
-supabase_key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
-
-if not supabase_url or not supabase_key:
-    st.error("Supabase credentials not found. Check secrets.toml or .env file.")
-    st.stop()
-
-# Set environment variables — this is what st.connection looks for under the hood
-os.environ["SUPABASE_URL"] = supabase_url
-os.environ["SUPABASE_SERVICE_KEY"] = supabase_key
 
 conn = st.connection(
-    name="supabase",
+    name="db",
     type="sql",
-    url=f"postgresql://postgres:{supabase_key}@{supabase_url.replace('https://', '')}:5432/postgres"
+    url=DATABASE_URL
 )
 
 # --- Secure Helper Functions ---
 def get_setting(key: str, default: str = "0") -> str:
-    df = conn.query("SELECT value FROM settings WHERE key = %s LIMIT 1", params=(key,), ttl=10)
+    df = conn.query("SELECT value FROM settings WHERE key = :setting LIMIT 1", params={"setting": key}, ttl=10)
     return df["value"].iloc[0] if not df.empty else default
 
 def set_setting(key: str, value: str):
@@ -62,7 +54,6 @@ def increment_plays(scenario_title: str):
     )
 
 # --- Categories ---
-@st.cache_data(ttl=300)
 def load_categories():
     df = conn.query("SELECT name FROM categories ORDER BY name")
     return ["Uncategorized"] + [row.name for _, row in df.iterrows()]
@@ -70,15 +61,14 @@ def load_categories():
 CATEGORIES = load_categories()
 
 # --- Public Scenarios (excludes embargoed) ---
-@st.cache_data(ttl=30)
 def load_scenarios():
     now = datetime.now()
     df = conn.query("""
         SELECT title, description, prompt, author, plays, category 
         FROM scenarios 
-        WHERE (release_date IS NULL OR release_date <= %s)
+        WHERE (release_date IS NULL OR release_date <= :time)
         ORDER BY submitted_at DESC
-    """, params=(now,))
+    """, params={"time": now})
     
     scenarios = {row.title: {
         "description": row.description,
