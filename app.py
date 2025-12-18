@@ -3,6 +3,7 @@ from litellm import completion
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import hashlib
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
