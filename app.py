@@ -4,8 +4,26 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import hashlib
 
-# --- Supabase Connection ---
-conn = st.connection("supabase", type="sql")
+
+load_dotenv()
+
+# Prioritize st.secrets (Streamlit Cloud), fallback to .env
+supabase_url = st.secrets.get("SUPABASE_URL", os.getenv("SUPABASE_URL"))
+supabase_key = st.secrets.get("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
+
+if not supabase_url or not supabase_key:
+    st.error("Supabase credentials not found. Check secrets.toml or .env file.")
+    st.stop()
+
+# Set environment variables — this is what st.connection looks for under the hood
+os.environ["SUPABASE_URL"] = supabase_url
+os.environ["SUPABASE_SERVICE_KEY"] = supabase_key
+
+conn = st.connection(
+    name="supabase",
+    type="sql",
+    url=f"postgresql://postgres:{supabase_key}@{supabase_url.replace('https://', '')}:5432/postgres"
+)
 
 # --- Secure Helper Functions ---
 def get_setting(key: str, default: str = "0") -> str:
