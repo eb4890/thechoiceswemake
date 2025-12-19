@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS categories (
 
 INSERT INTO categories (name, description) VALUES
 ('Choices', 'Direct moral dilemmas requiring decisive action'),
-('Explorations', 'Open-ended speculative futures and thought experiments'),
+('Explorations', 'Open-ended speculative futures and thought experiments')
 ON CONFLICT (name) DO NOTHING;
 
 -- Scenarios (live)
@@ -43,6 +43,17 @@ CREATE TABLE IF NOT EXISTS pending_scenarios (
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   release_date TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS journeys (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  llm_model TEXT NOT NULL,
+  scenario_title TEXT NOT NULL,
+  choice_text TEXT NOT NULL,
+  summary TEXT,
+  author TEXT,
+  submitted_at TIMESTAMP DEFAULT NOW()
+);
+
 
 -- Initial settings
 INSERT INTO settings (key, value) VALUES
