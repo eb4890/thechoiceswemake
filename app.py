@@ -143,6 +143,19 @@ st.markdown("*A living archive of ethical futures, shaped by humans and machines
 
 page = st.sidebar.radio("Navigate", ["Play", "Archive", "Propose New Choice", "Curate (Admin)"])
 
+st.sidebar.divider()
+st.sidebar.subheader("👤 Identity")
+if "pseudonym" not in st.session_state:
+    st.session_state.pseudonym = "Anonymouse"
+
+st.session_state.pseudonym = st.sidebar.text_input(
+    "Your Pseudonym", 
+    value=st.session_state.pseudonym,
+    help="This name will be attached to your recorded journeys in the archive.",
+    max_chars=50
+)
+
+
 MODEL_OPTIONS = {
     "GPT-4o mini": "openai/gpt-4o-mini",
     "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20241022",
@@ -294,10 +307,10 @@ Focus on the ethical dimensions and emotional weight.
             height=300
         )
 
-        player_pseudonym = st.text_input("Your pseudonym (optional, for the archive)")
-
+        player_pseudonym = st.session_state.pseudonym
         col1, col2 = st.columns(2)
         if col1.button("Record This Choice", type="primary"):
+            st.session_state.edited_summary = edited_summary
             try:
                 execute_write("""
                     INSERT INTO journeys 
@@ -307,7 +320,7 @@ Focus on the ethical dimensions and emotional weight.
                     st.session_state.current_scenario,
                     model_name,
                     st.session_state.final_choice,
-                    edited_summary,
+                    st.session_state.edited_summary,
                     player_pseudonym or None
                 ))
                 st.success("Your choice has been recorded in the archive.")
@@ -326,9 +339,9 @@ Focus on the ethical dimensions and emotional weight.
         st.markdown("### ✅ Your Choice Is Eternal")
         st.write(f"**Scenario:** {st.session_state.current_scenario}")
         st.write(f"**Final Choice:** {st.session_state.final_choice}")
-        st.write(f"**By:** {player_pseudonym or 'Anonymous'}")
+        st.write(f"**By:** {st.session_state.pseudonym or 'Anonymous'}")
         st.markdown("**Your Reflection:**")
-        st.write(edited_summary)
+        st.write(st.session_state.edited_summary)
 
         if st.button("Begin New Journey"):
             # Reset for new play
