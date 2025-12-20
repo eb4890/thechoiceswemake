@@ -177,7 +177,7 @@ def call_llm(model: str, messages: list, system_prompt: str = None) -> str:
 # --- UI ---
 st.set_page_config(page_title="The Choices We Make", layout="centered")
 st.title("The Choices We Make")
-st.markdown("*A living archive of ethical futures, shaped by humans and machines.*")
+st.markdown("*Practicing on impossible problems for individual and social improvement*")
 
 page = st.sidebar.radio("Navigate", ["Play", "Archive", "Propose New Choice", "Curate (Admin)"])
 
@@ -232,9 +232,31 @@ if page == "Play":
         st.markdown(f"### {scenario_key}")
         st.markdown(f"*{scenario['category']}*{author_credit} — {scenario['plays']} plays")
         st.info(scenario["description"])
+        prompt_prefix = """
+CRITICAL INTERACTION STYLE:
+- Never present A/B/C/D options
+- Never list "you could do X, Y, or Z"
+- Ask open questions and let the user respond freely
+- React to what they actually say/do
+- If they're uncertain, ask clarifying questions
+- Draw out their reasoning through dialogue
+- Let choices emerge from conversation, not menu selection
 
+Example:
+WRONG: "What do you do? A) Tell them B) Hide it C) Run away"
+RIGHT: "The parrot is still talking. What do you do?" 
+       [User responds naturally, you react to their specific choice]
+Also add:
+PACING:
+- Keep responses short (2-4 sentences usually)
+- Present one moment/beat at a time
+- Wait for user response before continuing
+- Don't rush through the scenario
+- Let tension build naturally
+- Allow pauses and uncertainty
+        """
         if st.button("� Begin Your Journey", type="primary", use_container_width=True):
-            st.session_state.messages = [{"role": "system", "content": scenario["prompt"]}]
+            st.session_state.messages = [{"role": "system", "content": prompt_prefix + scenario["prompt"]}]
             st.session_state.current_scenario = scenario_key
             st.session_state.current_model = model_id
             st.session_state.play_phase = "roleplay"
@@ -282,7 +304,8 @@ if page == "Play":
 Based on the conversation so far, generate 4 concrete, distinct choices the protagonist now faces.
 Number them 1–4 and keep each under 25 words.
 Do not add commentary or continuation — only the numbered list.
-"""     
+"""         
+            choices_text = ""
             with st.spinner("Deriving possible choices..."):
                 choices_text = call_llm(
                     st.session_state.current_model,
@@ -292,21 +315,17 @@ Do not add commentary or continuation — only the numbered list.
 
             # Parse choices (robust fallback)
             choices = []
-            choice_lines = [line.strip() for line in choices_text.split("\n") if line.strip() and (line[0].isdigit() or "." in line[:3])]
-            for line in choice_lines[:4]:
-                # Extract text after number
-                if ". " in line:
-                    text = line.split(". ", 1)[1]
-                elif ":" in line:
-                    text = line.split(":", 1)[1].strip()
-                else:
-                    text = line
-                choices.append(text)
-            
-            if len(choices) < 3:
-                st.error("Failed to generate choices. Please try again.")
-                st.session_state.play_phase = "roleplay"
-                st.rerun()
+            if choices_text:
+                choice_lines = [line.strip() for line in choices_text.split("\n") if line.strip() and (line[0].isdigit() or "." in line[:3])]
+                for line in choice_lines[:4]:
+                    # Extract text after number
+                    if ". " in line:
+                        text = line.split(". ", 1)[1]
+                    elif ":" in line:
+                        text = line.split(":", 1)[1].strip()
+                    else:
+                        text = line
+                    choices.append(text)    
             
             st.session_state.generated_choices = choices
 
