@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: choices_user
-      POSTGRES_PASSWORD: your_very_strong_password_here
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_very_strong_password_here}
       POSTGRES_DB: choices_archive
     ports:
       - "5433:5432"
@@ -19,6 +19,21 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  app:
+    build: .
+    container_name: choices-app
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgresql://choices_user:${DB_PASSWORD:-your_very_strong_password_here}@postgres:5432/choices_archive
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:

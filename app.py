@@ -6,9 +6,8 @@ import hashlib
 import os
 from dotenv import load_dotenv
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://choices_user:your_very_strong_password_here@localhost:5433/choices_archive")
-
 load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://choices_user:your_very_strong_password_here@localhost:5433/choices_archive")
 
 conn = st.connection(
     name="db",
@@ -18,13 +17,11 @@ conn = st.connection(
 
 def execute_write(sql: str, params=None):
     """
-    Execute a write query that doesn't return rows.
-    Uses raw cursor to avoid ResourceClosedError.
+    Execute a write query using SQLAlchemy's connection management.
+    Handles transactions automatically to ensure data is saved.
     """
-    with conn._instance.connect() as connection:  # Access underlying SQLAlchemy engine
-        with connection.connection.cursor() as cur:
-            cur.execute(sql, params or ())
-        connection.commit()  # Important: commit the transaction
+    with conn._instance.begin() as connection:
+        connection.exec_driver_sql(sql, params or ())
 
 # --- Secure Helper Functions ---
 def get_setting(key: str, default: str = "0") -> str:
@@ -56,10 +53,38 @@ def increment_usage():
 def increment_plays(scenario_title: str):
     if scenario_title == "Audience with the Black Dragon":
         return
-    conn.query(
+    execute_write(
         "UPDATE scenarios SET plays = plays + 1 WHERE title = %s",
         params=(scenario_title,)
     )
+
+def record_journey(scenario_title, model_name, choice_text, summary, author):
+    execute_write("""
+        INSERT INTO journeys 
+        (scenario_title, llm_model, choice_text, summary, author)
+        VALUES (%s, %s, %s, %s, %s)
+    """, params=(scenario_title, model_name, choice_text, summary, author))
+
+def propose_scenario(title, description, prompt, author, category, release_date):
+    execute_write("""
+        INSERT INTO pending_scenarios 
+        (title, description, prompt, author, category, release_date)
+        VALUES (%s, %s, %s, %s, %s, %s)
+    """, params=(title, description, prompt, author, category, release_date))
+
+def approve_scenario(scenario_id, title, description, prompt, author, category, release_date):
+    execute_write("""
+        INSERT INTO scenarios (title, description, prompt, author, category, release_date)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (title) DO NOTHING
+    """, params=(title, description, prompt, author, category, release_date))
+    execute_write("UPDATE pending_scenarios SET status = 'approved' WHERE id = %s", params=(scenario_id,))
+
+def reject_scenario(scenario_id):
+    execute_write("UPDATE pending_scenarios SET status = 'rejected' WHERE id = %s", params=(scenario_id,))
+
+def release_scenario_early(scenario_id):
+    execute_write("UPDATE scenarios SET release_date = NOW() WHERE id = %s", params=(scenario_id,))
 
 # --- Categories ---
 def load_categories():
@@ -124,6 +149,14 @@ SCENARIOS = load_scenarios()
 
 # --- LLM Call ---
 def call_llm(model: str, messages: list, system_prompt: str = None) -> str:
+    if model == "dummy":
+        if system_prompt:
+            if "generate 4" in system_prompt:
+                return "1. Stand your ground\n2. Seek a compromise\n3. Walk away\n4. Forge a new path"
+            if "Summarize" in system_prompt:
+                return f"A journey was undertaken, patterns were observed, and a choice was made: {st.session_state.get('final_choice', 'Unknown')}. The archive grows by one reflection, a drop in the digital ocean of moral uncertainty."
+        return "The machine mind process follows a logic you cannot yet perceive. The story continues."
+
     limit = int(get_setting("daily_limit", "150"))
     if get_usage() >= limit:
         return "The collective capacity for difficult choices has been exhausted today. Return tomorrow."
@@ -131,8 +164,13 @@ def call_llm(model: str, messages: list, system_prompt: str = None) -> str:
     try:
         increment_usage()
         full_messages = [{"role": "system", "content": system_prompt}] + messages if system_prompt else messages
-        response = completion(model=model, messages=full_messages, max_tokens=600, temperature=0.8)
-        return response.choices[0].message.content
+        response = completion(model=model, messages=full_messages, max_tokens=1200, temperature=0.8)
+        
+        content = response.choices[0].message.content
+        if response.choices[0].finish_reason == "length":
+            content += "\n\n*(Note: This response was truncated due to length limits.)*"
+            
+        return content
     except Exception as e:
         return f"Temporal anomaly: {str(e)}"
 
@@ -157,75 +195,81 @@ st.session_state.pseudonym = st.sidebar.text_input(
 
 
 MODEL_OPTIONS = {
-    "GPT-4o mini": "openai/gpt-4o-mini",
-    "Claude 3.5 Sonnet": "anthropic/claude-3-5-sonnet-20241022",
-    "Gemini 1.5 Flash": "google/gemini-1.5-flash",
-    "Llama 3.1 70B (Groq)": "groq/llama3-70b-8192",
-    "Grok-4": "xai/grok-4",
-    "DeepSeek Chat": "deepseek/deepseek-chat",
-    "Mistral Large": "mistral/mistral-large-2407",
+    "Gemini 3.0 Flash": "gemini/gemini-3-flash-preview",
+    "Dummy LLM (No Cost)": "dummy",
 }
+
+def on_model_change():
+    st.session_state.current_model = MODEL_OPTIONS[st.session_state.play_model]
 
 if page == "Play":
     if not SCENARIOS:
         st.info("No public scenarios yet. The archive is waiting for its first choice.")
         st.stop()
 
-    col1, col2 = st.columns(2)
-    with col1:
-        model_name = st.selectbox("AI Mind", options=list(MODEL_OPTIONS.keys()), key="play_model")
-        model_id = MODEL_OPTIONS[model_name]
-    with col2:
-        scenario_key = st.selectbox("Scenario", options=list(SCENARIOS.keys()), key="play_scenario")
-
-    scenario = SCENARIOS[scenario_key]
-    author_credit = f" — by {scenario['author']}" if scenario['author'] != "Anonymous" else ""
-    st.markdown(f"**{scenario_key}** ({scenario['category']}){author_credit} — {scenario['plays']} plays")
-    st.write(scenario["description"])
-
-    st.download_button(
-        "📥 Download prompt",
-        data=scenario["prompt"],
-        file_name=f"{scenario_key.replace(' ', '_')}_prompt.txt",
-        mime="text/plain"
-    )
-
-    if scenario_key == "Audience with the Black Dragon":
-        st.info("🐉 Entering the Dragon's Lair — meta-discussion of all public scenarios.")
-
     # Initialize session state for this playthrough
     if "play_phase" not in st.session_state:
-        st.session_state.play_phase = "roleplay"  # roleplay → choice → summary → recorded
-    if st.session_state.get("current_scenario") != scenario_key:
-        st.session_state.messages = [{"role": "system", "content": scenario["prompt"]}]
-        st.session_state.current_scenario = scenario_key
-        st.session_state.current_model = model_id
-        st.session_state.play_phase = "roleplay"
-        increment_plays(scenario_key)
+        st.session_state.play_phase = "setup"  # setup → roleplay → choice → summary → recorded
+
+    # === Setup Phase ===
+    if st.session_state.play_phase == "setup":
+        st.subheader("Prepare Your Journey")
+        st.write("Choose the scenario you wish to explore and the machine mind that will accompany you.")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            model_name = st.selectbox(
+                "AI Mind", 
+                options=list(MODEL_OPTIONS.keys()), 
+                key="play_model"
+            )
+            model_id = MODEL_OPTIONS[model_name]
+        with col2:
+            scenario_key = st.selectbox("Scenario", options=list(SCENARIOS.keys()), key="play_scenario")
+
+        scenario = SCENARIOS[scenario_key]
+        author_credit = f" — by {scenario['author']}" if scenario['author'] != "Anonymous" else ""
+        st.markdown(f"### {scenario_key}")
+        st.markdown(f"*{scenario['category']}*{author_credit} — {scenario['plays']} plays")
+        st.info(scenario["description"])
+
+        if st.button("� Begin Your Journey", type="primary", use_container_width=True):
+            st.session_state.messages = [{"role": "system", "content": scenario["prompt"]}]
+            st.session_state.current_scenario = scenario_key
+            st.session_state.current_model = model_id
+            st.session_state.play_phase = "roleplay"
+            increment_plays(scenario_key)
+            st.rerun()
 
     # === Roleplay Phase ===
-    if st.session_state.play_phase == "roleplay":
+    elif st.session_state.play_phase == "roleplay":
+        scenario = SCENARIOS[st.session_state.current_scenario]
+        author_credit = f" — by {scenario['author']}" if scenario['author'] != "Anonymous" else ""
+        st.markdown(f"**Exploring: {st.session_state.current_scenario}** ({scenario['category']}){author_credit}")
+        
+        if st.session_state.current_scenario == "Audience with the Black Dragon":
+            st.info("🐉 Entering the Dragon's Lair — meta-discussion of all public scenarios.")
+
         # Display chat history
         for msg in st.session_state.messages[1:]:
             st.chat_message(msg["role"]).write(msg["content"])
 
-        col_chat, col_button = st.columns([5, 1])
-        with col_chat:
-            if prompt := st.chat_input("Your response..."):
-                st.session_state.messages.append({"role": "user", "content": prompt})
-                st.chat_message("user").write(prompt)
+        if prompt := st.chat_input("Your response..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.rerun()
 
-                with st.chat_message("assistant"):
-                    with st.spinner("The story unfolds..."):
-                        response = call_llm(st.session_state.current_model, st.session_state.messages)
-                    st.write(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
-
-        with col_button:
-            st.markdown("<br>", unsafe_allow_html=True)  # spacing
-            if st.button("Make Choice", type="primary", use_container_width=True):
-                st.session_state.play_phase = "choice"
+        # Handle assistant response if the last message is from the user
+        if st.session_state.messages[-1]["role"] == "user":
+            with st.chat_message("assistant"):
+                with st.spinner("The story unfolds..."):
+                    response = call_llm(st.session_state.current_model, st.session_state.messages)
+                st.session_state.messages.append({"role": "assistant", "content": response})
                 st.rerun()
+
+        st.markdown("---")
+        if st.button("🗳️ I have seen enough. I am ready to choose.", type="primary", use_container_width=True):
+            st.session_state.play_phase = "choice"
+            st.rerun()
 
     # === Choice Phase ===
     elif st.session_state.play_phase == "choice":
@@ -233,53 +277,59 @@ if page == "Play":
         st.write("The story has reached a critical juncture. What do you decide?")
 
         # Generate choice options from the current story
-        choice_prompt = """
+        if "generated_choices" not in st.session_state:
+            choice_prompt = """
 Based on the conversation so far, generate 4 concrete, distinct choices the protagonist now faces.
 Number them 1–4 and keep each under 25 words.
 Do not add commentary or continuation — only the numbered list.
-"""
-        with st.spinner("Deriving possible choices..."):
-            choices_text = call_llm(
-                st.session_state.current_model,
-                st.session_state.messages,
-                system_prompt=choice_prompt
-            )
+"""     
+            with st.spinner("Deriving possible choices..."):
+                choices_text = call_llm(
+                    st.session_state.current_model,
+                    st.session_state.messages,
+                    system_prompt=choice_prompt
+                )
 
-        # Parse choices (robust fallback)
-        choice_lines = [line.strip() for line in choices_text.split("\n") if line.strip() and (line[0].isdigit() or "." in line[:3])]
-        choices = []
-        for line in choice_lines[:4]:
-            # Extract text after number
-            if ". " in line:
-                text = line.split(". ", 1)[1]
-            elif ":" in line:
-                text = line.split(":", 1)[1].strip()
-            else:
-                text = line
-            choices.append(text)
+            # Parse choices (robust fallback)
+            choices = []
+            choice_lines = [line.strip() for line in choices_text.split("\n") if line.strip() and (line[0].isdigit() or "." in line[:3])]
+            for line in choice_lines[:4]:
+                # Extract text after number
+                if ". " in line:
+                    text = line.split(". ", 1)[1]
+                elif ":" in line:
+                    text = line.split(":", 1)[1].strip()
+                else:
+                    text = line
+                choices.append(text)
+            
+            if len(choices) < 3:
+                st.error("Failed to generate choices. Please try again.")
+                st.session_state.play_phase = "roleplay"
+                st.rerun()
+            
+            st.session_state.generated_choices = choices
 
-        if len(choices) < 3:
-            choices = [
-                "Accept the offered terms",
-                "Reject and go public",
-                "Attempt to negotiate",
-                "Destroy the work"
-            ]
+        choices = st.session_state.generated_choices
 
         # User selects or writes own
         selected_choice = st.radio("Choose one:", choices + ["Other (write your own)"])
-
+        custom_choice = ""
         if selected_choice == "Other (write your own)":
-            custom_choice = st.text_input("Describe your choice:")
-        else:
-            custom_choice = None
+            custom_choice = st.text_input("Describe your choice:", key="custom_choice_input")
 
         col1, col2 = st.columns(2)
         if col1.button("Confirm Choice", type="primary"):
-            st.session_state.final_choice = custom_choice or selected_choice
-            st.session_state.play_phase = "summary"
-            st.rerun()
+            final_choice = custom_choice if selected_choice == "Other (write your own)" else selected_choice
+            if not final_choice or final_choice.strip() == "":
+                st.warning("Please specify your choice.")
+            else:
+                st.session_state.final_choice = final_choice.strip()
+                st.session_state.play_phase = "summary"
+                st.rerun()
         if col2.button("← Back to Roleplay"):
+            if "generated_choices" in st.session_state:
+                del st.session_state.generated_choices
             st.session_state.play_phase = "roleplay"
             st.rerun()
 
@@ -288,41 +338,39 @@ Do not add commentary or continuation — only the numbered list.
         st.markdown("### 📜 Record Your Journey")
         st.write("Reflect on the path taken and your final choice.")
 
-        summary_prompt = f"""
+        if "ai_summary" not in st.session_state:
+            summary_prompt = f"""
 Summarize the entire story journey in 150–250 words from a neutral third-person perspective.
 Include key events, internal conflicts, and end with the final choice: "{st.session_state.final_choice}".
 Focus on the ethical dimensions and emotional weight.
 """
-        with st.spinner("Crafting a summary of your path..."):
-            ai_summary = call_llm(
-                st.session_state.current_model,
-                st.session_state.messages,
-                system_prompt=summary_prompt
-            )
+            with st.spinner("Crafting a summary of your path..."):
+                ai_summary = call_llm(
+                    st.session_state.current_model,
+                    st.session_state.messages,
+                    system_prompt=summary_prompt
+                )
+                st.session_state.ai_summary = ai_summary
 
         st.markdown("**Editable Summary**")
         edited_summary = st.text_area(
             "Edit this summary to better reflect your thinking and intent:",
-            value=ai_summary,
-            height=300
+            value=st.session_state.ai_summary,
+            height=300,
+            key="summary_editor"
         )
 
-        player_pseudonym = st.session_state.pseudonym
         col1, col2 = st.columns(2)
         if col1.button("Record This Choice", type="primary"):
             st.session_state.edited_summary = edited_summary
             try:
-                execute_write("""
-                    INSERT INTO journeys 
-                    (scenario_title, llm_model, choice_text, summary, author)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, params=(
+                record_journey(
                     st.session_state.current_scenario,
-                    model_name,
+                    st.session_state.current_model,
                     st.session_state.final_choice,
                     st.session_state.edited_summary,
-                    player_pseudonym or None
-                ))
+                    st.session_state.pseudonym
+                )
                 st.success("Your choice has been recorded in the archive.")
                 st.session_state.play_phase = "recorded"
                 st.rerun()
@@ -330,6 +378,8 @@ Focus on the ethical dimensions and emotional weight.
                 st.error(f"Could not record journey: {e}")
 
         if col2.button("← Revise Choice"):
+            if "ai_summary" in st.session_state:
+                del st.session_state.ai_summary
             st.session_state.play_phase = "choice"
             st.rerun()
 
@@ -345,26 +395,57 @@ Focus on the ethical dimensions and emotional weight.
 
         if st.button("Begin New Journey"):
             # Reset for new play
-            for key in ["messages", "current_scenario", "current_model", "play_phase", "final_choice"]:
+            keys_to_reset = [
+                "messages", "current_scenario", "current_model", 
+                "play_phase", "final_choice", "generated_choices", 
+                "ai_summary", "edited_summary", "custom_choice_input", "summary_editor"
+            ]
+            for key in keys_to_reset:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
 
 # Rest of the app (Archive, Propose, Curate) remains unchanged...
 elif page == "Archive":
-    st.header("Archive of Choices")
-    if not SCENARIOS:
-        st.info("The archive awaits its first public entry.")
-    else:
-        for category in sorted(set(s.get("category", "Uncategorized") for s in SCENARIOS.values())):
-            cat_scenarios = {t: d for t, d in SCENARIOS.items() if d.get("category") == category}
-            if cat_scenarios:
-                st.subheader(category)
-                for title, data in cat_scenarios.items():
-                    author = f" — by {data['author']}" if data['author'] != "Anonymous" else ""
-                    with st.expander(f"{title}{author} — {data['plays']} plays"):
-                        st.write(data["description"])
-                        st.code(data["prompt"], language="text")
+    tab1, tab2 = st.tabs(["Public Scenarios", "Recent Journeys"])
+    
+    with tab1:
+        st.header("Archive of Choices")
+        if not SCENARIOS:
+            st.info("The archive awaits its first public entry.")
+        else:
+            for category in sorted(set(s.get("category", "Uncategorized") for s in SCENARIOS.values())):
+                cat_scenarios = {t: d for t, d in SCENARIOS.items() if d.get("category") == category}
+                if cat_scenarios:
+                    st.subheader(category)
+                    for title, data in cat_scenarios.items():
+                        author = f" — by {data['author']}" if data['author'] != "Anonymous" else ""
+                        with st.expander(f"{title}{author} — {data['plays']} plays"):
+                            st.write(data["description"])
+                            st.code(data["prompt"], language="text")
+
+    with tab2:
+        st.header("Recent Journeys")
+        try:
+            journeys = conn.query("""
+                SELECT scenario_title, llm_model, choice_text, summary, author, submitted_at 
+                FROM journeys 
+                ORDER BY submitted_at DESC 
+                LIMIT 50
+            """, ttl=0) # No caching for recent journeys
+            
+            if journeys.empty:
+                st.info("No recorded journeys yet. Be the first to shape history.")
+            else:
+                for row in journeys.itertuples():
+                    author_label = row.author or "Anonymous"
+                    with st.expander(f"**{row.scenario_title}** — by {author_label} ({row.submitted_at.strftime('%Y-%m-%d')})"):
+                        st.write(f"**LLM Model:** {row.llm_model}")
+                        st.write(f"**Choice:** {row.choice_text}")
+                        st.write("**Reflection:**")
+                        st.write(row.summary)
+        except Exception as e:
+            st.error(f"Could not load journeys: {e}")
 
 elif page == "Propose New Choice":
     # (unchanged from your original)
@@ -399,12 +480,14 @@ elif page == "Propose New Choice":
                     release_date = datetime.now() + relativedelta(months=months)
                 
                 try:
-                    conn.query("""
-                        INSERT INTO pending_scenarios 
-                        (title, description, prompt, author, category, release_date)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, params=(title.strip(), description.strip(), prompt.strip(),
-                                author.strip() or None, category, release_date))
+                    propose_scenario(
+                        title.strip(), 
+                        description.strip(), 
+                        prompt.strip(),
+                        author.strip() or None, 
+                        category, 
+                        release_date
+                    )
                     st.success("Submitted! It will remain private until approved and any embargo expires.")
                     st.balloons()
                 except Exception:
@@ -445,22 +528,17 @@ elif page == "Curate (Admin)":
                     if row.status == "Pending":
                         col1, col2 = st.columns(2)
                         if col1.button("Approve", key=f"app_{row.id}"):
-                            conn.query("""
-                                INSERT INTO scenarios (title, description, prompt, author, category, release_date)
-                                VALUES (%s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (title) DO NOTHING
-                            """, params=(row.title, row.description, row.prompt, row.author, row.category, row.release_date))
-                            conn.query("UPDATE pending_scenarios SET status = 'approved' WHERE id = %s", params=(row.id,))
+                            approve_scenario(row.id, row.title, row.description, row.prompt, row.author, row.category, row.release_date)
                             st.success("Approved")
                             st.rerun()
                         if col2.button("Reject", key=f"rej_{row.id}"):
-                            conn.query("UPDATE pending_scenarios SET status = 'rejected' WHERE id = %s", params=(row.id,))
+                            reject_scenario(row.id)
                             st.info("Rejected")
                             st.rerun()
                     
                     if row.status == "Approved" and row.release_date and row.release_date > datetime.now():
                         if st.button("Release Early", key=f"early_{row.id}"):
-                            conn.query("UPDATE scenarios SET release_date = NOW() WHERE id = %s", params=(row.id,))
+                            release_scenario_early(row.id)
                             st.success("Released early")
                             st.rerun()
 

@@ -1,16 +1,24 @@
 FROM python:3.9-slim
 
+# Create non-root user
+RUN groupadd -r streamlit && useradd -r -g streamlit streamlit
+
 WORKDIR /app
 
-# Copy the current directory contents to /app in the container
-COPY . /app
-
+# Install dependencies as root
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install -r requirements.txt
+COPY requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the app with correct ownership
+COPY --chown=streamlit:streamlit . .
+
+# Switch to non-root user
+USER streamlit
 
 EXPOSE 8501
 
