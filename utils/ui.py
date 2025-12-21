@@ -1,6 +1,10 @@
 import streamlit as st
 import utils.services as services
 from utils.llm import call_llm
+from utils.db import conn
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+import hashlib
 
 MODEL_OPTIONS = {
     "Gemini 3.0 Flash": "gemini/gemini-3-flash-preview",
@@ -107,7 +111,7 @@ PACING:
         st.session_state.current_model = model_id
         st.session_state.play_phase = "roleplay"
         services.increment_plays(scenario_key)
-        st.rerun()
+        st.rerun(scope="app")
 
 @st.fragment
 def render_roleplay_fragment():
@@ -265,21 +269,144 @@ def render_play_page(scenarios):
     elif st.session_state.play_phase == "summary":
         render_summary_fragment()
     elif st.session_state.play_phase == "recorded":
-        st.balloons()
-        st.markdown("### ✅ Your Choice Is Eternal")
-        st.write(f"**Scenario:** {st.session_state.current_scenario}")
-        st.write(f"**Final Choice:** {st.session_state.final_choice}")
-        st.write(f"**By:** {st.session_state.pseudonym or 'Anonymous'}")
-        st.markdown("**Your Reflection:**")
-        st.write(st.session_state.edited_summary)
+        render_recorded_fragment()
 
-        if st.button("Begin New Journey", type="primary"):
-            keys_to_reset = [
-                "messages", "current_scenario", "current_model", 
-                "play_phase", "final_choice", "generated_choices", 
-                "ai_summary", "edited_summary", "custom_choice_input", "summary_editor"
-            ]
-            for key in keys_to_reset:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
+def render_archive_page():
+    st.header("Recent Journeys")
+    try:
+        journeys = conn.query("""
+            SELECT scenario_title, llm_model, choice_text, summary, author, submitted_at 
+            FROM journeys 
+            ORDER BY submitted_at DESC 
+            LIMIT 50
+        """, ttl=0) 
+        
+        if journeys.empty:
+            st.info("No recorded journeys yet. Be the first to shape history.")
+        else:
+            for row in journeys.itertuples():
+                author_label = row.author or "Anonymous"
+                with st.expander(f"**{row.scenario_title}** — by {author_label} ({row.submitted_at.strftime('%Y-%m-%d')})"):
+                    st.write(f"**LLM Model:** {row.llm_model}")
+                    st.write(f"**Choice:** {row.choice_text}")
+                    st.write("**Reflection:**")
+                    st.write(row.summary)
+    except Exception as e:
+        st.error(f"Could not load journeys: {e}")
+
+def render_propose_page(categories):
+    st.header("Propose a New Choice")
+    st.write("Submit a new ethical dilemma to the archive. Sensitive contributions may be embargoed.")
+
+    with st.form("proposal_form"):
+        title = st.text_input("Title (unique and evocative)", max_chars=100)
+        description = st.text_area("Short description (shown in menu)", height=100, max_chars=300)
+        prompt = st.text_area("Full system prompt (RPG instructions)", height=400, max_chars=4000)
+        author = st.text_input("Your name or pseudonym (optional)", max_chars=50)
+        category = st.selectbox("Category", options=categories)
+        
+        embargo_option = st.selectbox(
+            "Release timing",
+            ["Immediate", "6 months", "1 year", "2 years", "5 years"]
+        )
+        
+        if embargo_option != "Immediate":
+            months = {"6 months": 6, "1 year": 12, "2 years": 24, "5 years": 60}[embargo_option]
+            preview = (datetime.now() + relativedelta(months=months)).strftime("%B %Y")
+            st.info(f"Will remain private until ~{preview}")
+
+        submitted = st.form_submit_button("Submit for Review")
+        if submitted:
+            if not (title and description and prompt):
+                st.error("Title, description, and prompt are required.")
+            else:
+                release_date = None
+                if embargo_option != "Immediate":
+                    release_date = datetime.now() + relativedelta(months=months)
+                
+                try:
+                    services.propose_scenario(
+                        title.strip(), 
+                        description.strip(), 
+                        prompt.strip(),
+                        author.strip() or None, 
+                        category, 
+                        release_date
+                    )
+                    st.success("Submitted! It will remain private until approved and any embargo expires.")
+                    st.balloons()
+                except Exception:
+                    st.error("Submission failed — likely duplicate title.")
+
+def render_curate_page():
+    st.header("Curation & Moderation")
+    password_input = st.text_input("Admin Password", type="password")
+    expected_hash = st.secrets.get("ADMIN_PASSWORD_HASH", "")
+    
+    if expected_hash and hashlib.sha256(password_input.encode()).hexdigest() == expected_hash:
+        all_entries = conn.query("""
+            SELECT 'Approved' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            FROM scenarios
+            UNION ALL
+            SELECT 'Pending' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            FROM pending_scenarios WHERE status = 'pending'
+            ORDER BY submitted_at DESC
+        """)
+
+        if all_entries.empty:
+            st.success("No pending or approved scenarios.")
+        else:
+            for row in all_entries.itertuples():
+                status_badge = "🟢 Live" if row.status == "Approved" else "🟡 Pending"
+                release_note = " — ✅ Immediate"
+                if row.release_date:
+                    if row.release_date > datetime.now():
+                        release_note = f" — 🔒 Embargoed until {row.release_date.strftime('%B %Y')}"
+                    else:
+                        release_note = " — ✅ Released"
+                
+                with st.expander(f"{status_badge} {row.title} ({row.category or 'Uncategorized'}) — by {row.author or 'Anonymous'} {release_note}"):
+                    st.write("**Description:**", row.description)
+                    st.code(row.prompt, language="text")
+                    
+                    if row.status == "Pending":
+                        col1, col2 = st.columns(2)
+                        if col1.button("Approve", key=f"app_{row.id}"):
+                            services.approve_scenario(row.id, row.title, row.description, row.prompt, row.author, row.category, row.release_date)
+                            st.success("Approved")
+                            st.rerun()
+                        if col2.button("Reject", key=f"rej_{row.id}"):
+                            services.reject_scenario(row.id)
+                            st.info("Rejected")
+                            st.rerun()
+                    
+                    if row.status == "Approved" and row.release_date and row.release_date > datetime.now():
+                        if st.button("Release Early", key=f"early_{row.id}"):
+                            services.release_scenario_early(row.id)
+                            st.success("Released early")
+                            st.rerun()
+    elif password_input:
+        st.error("Incorrect password.")
+    else:
+        st.info("Enter admin password to access curation tools.")
+
+@st.fragment
+def render_recorded_fragment():
+    st.balloons()
+    st.markdown("### ✅ Your Choice Is Eternal")
+    st.write(f"**Scenario:** {st.session_state.current_scenario}")
+    st.write(f"**Final Choice:** {st.session_state.final_choice}")
+    st.write(f"**By:** {st.session_state.pseudonym or 'Anonymous'}")
+    st.markdown("**Your Reflection:**")
+    st.write(st.session_state.edited_summary)
+
+    if st.button("Begin New Journey", type="primary"):
+        keys_to_reset = [
+            "messages", "current_scenario", "current_model", 
+            "play_phase", "final_choice", "generated_choices", 
+            "ai_summary", "edited_summary", "custom_choice_input", "summary_editor"
+        ]
+        for key in keys_to_reset:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun(scope="app")

@@ -1,7 +1,7 @@
 FROM python:3.9-slim
 
-# Create non-root user
-RUN groupadd -r streamlit && useradd -r -g streamlit streamlit
+# Create non-root user with home directory
+RUN groupadd -r streamlit && useradd -r -g streamlit -d /home/streamlit -m streamlit
 
 WORKDIR /app
 

@@ -71,7 +71,7 @@ def load_categories():
             return ["Uncategorized"] + sorted(df["name"].tolist())
     except:
         pass
-    return ["Uncategorized", "Choices", "Explorations", "Alignment", "Displacement", "Inequality", "Meta"]
+    return ["Uncategorized", "Choices", "Explorations"]
 
 def load_scenarios():
     now = datetime.now()
