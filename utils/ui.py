@@ -16,9 +16,8 @@ def render_landing_page():
     st.header("How to Use This Site")
     
     st.markdown("""
-We're experimenting with how people can practice navigating impossible choices. We don't know exactly what helps yet—that's what we're learning together.
-
-**Here's what seems to work so far:**
+The goal of this site is to help people with the complex and often weird choices we are going to face in the future. It started off with a series of idiosyncratic story ideas. This changed into set of RPG scenarios. Now it is a site for people to practice and record their decisions.
+**Here's the site is supposed to be used:**
 
 **Talk, don't click.** When asked what you'd do, just tell it. Type naturally. The scenario responds to your actual words, not preset options.
 
@@ -26,13 +25,15 @@ We're experimenting with how people can practice navigating impossible choices. 
 
 **Decide when you're ready.** Take your time. Notice what makes it hard. There's no timer.
 
-**Look at others' reasoning afterwards.** See how different people weighted the same tradeoffs. Not to find who's "right"—just to see the range of ways people think about these problems.
+**Look at others' reasoning afterwards.** See how different people weighted the same tradeoffs. Not to find who's "right", just to see the range of ways people think about these problems.
 
 **This is training, but it should be interesting.** If a scenario feels like a chore, try a different one. Some will grab you, some won't. That's fine.
 
-**We're building this together.** Your choices and reflections help us understand what actually helps people practice better judgment. If something's confusing or feels off, that's useful to know.
+**I'm open to feedback and suggestions.** Your choices and reflections help me understand what actually helps people practice better judgment. If something's confusing or feels off, that's useful to know.
 
-The goal: practice thinking about coordination problems and impossible tradeoffs before you face them for real. Whether it works? We're finding out.
+Next possible steps:
+- Add channels for people to curate their own scenarios
+- Add a different view of scenarios that encourages you to think about what you know about the ambiguous scenarios.
 """)
     
     if st.button("🚀 Ready to Begin"):
