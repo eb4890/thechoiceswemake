@@ -13,9 +13,9 @@ services:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro  # Auto-runs on first start
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro # Auto-runs on first start
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U choices_user -d choices_archive"]
+      test: [ "CMD-SHELL", "pg_isready -U choices_user -d choices_archive" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -24,8 +24,8 @@ services:
     build: .
     container_name: choices-app
     restart: unless-stopped
-    ports:
-      - "8501:8501"
+    # ports:
+    #   - "8501:8501"
     volumes:
       - .:/app
     environment:
@@ -34,6 +34,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: choices-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+    depends_on:
+      - app
+
+  certbot:
+    image: certbot/certbot
+    container_name: choices-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done'"
 
 volumes:
   postgres_data:
