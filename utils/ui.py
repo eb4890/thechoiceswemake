@@ -17,7 +17,8 @@ def render_landing_page():
     
     st.markdown("""
 The goal of this site is to help people with the complex and often weird choices we are going to face in the future. It started off with a series of idiosyncratic story ideas. This changed into set of RPG scenarios. Now it is a site for people to practice and record their decisions.
-**Here's the site is supposed to be used:**
+
+**Here's how the site is intended to be used:**
 
 **Talk, don't click.** When asked what you'd do, just tell it. Type naturally. The scenario responds to your actual words, not preset options.
 
