@@ -74,5 +74,8 @@ docker-compose run --rm --entrypoint "\
     --force-renewal" certbot
 echo
 
+echo "### Enabling SSL configuration ..."
+cat ./nginx/ssl.conf.template | envsubst '$DOMAIN $CERT_DOMAIN' > ./nginx/conf/ssl.conf
+
 echo "### Reloading nginx ..."
 docker-compose exec nginx nginx -s reload

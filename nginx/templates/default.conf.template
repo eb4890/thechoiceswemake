@@ -4,12 +4,10 @@ server {
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
+        try_files $uri =404;
     }
 
     location / {
-        # Redirect all HTTP traffic to HTTPS if we are not in a challenge
-        # return 301 https://$host$request_uri;
-        
         proxy_pass http://app:8501;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
