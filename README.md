@@ -31,11 +31,11 @@ Follow these steps to get the application running on your local machine or serve
    - `EMAIL`: Your email for Let's Encrypt notifications.
 
 3. **Running Locally (HTTP)**:
-   If you didn't set a `DOMAIN` in `.env`, the app will run on port 80.
+   If you didn't set a `DOMAIN` in `.env`, the app will run on port 8080.
    ```bash
    docker-compose up -d
    ```
-   Access the app at `http://localhost`.
+   Access the app at `http://localhost:8080`.
 
 4. **Running in Production (HTTPS)**:
    Ensure your `DOMAIN` is set and pointing to your server's IP.
@@ -49,6 +49,7 @@ Follow these steps to get the application running on your local machine or serve
 ### Project Structure
 
 - `app.py`: Main Streamlit application.
+- `utils/`: Utility modules for database, LLM, and UI components.
 - `docker-compose.yaml`: Multi-container orchestration (App, DB, Nginx, Certbot).
 - `nginx/`: Nginx configuration templates.
 - `certbot/`: SSL certificate storage.
@@ -63,3 +64,16 @@ Follow these steps to get the application running on your local machine or serve
 ## License
 
 This project is licensed under the Apache-2.0 License - see the [LICENSE](LICENSE) file for details.
+
+## Architectural direction
+
+Move postgres to a separate server.
+Look at nginx load balancing
+Alembic for database migrations
+
+## Code direction
+
+Tests
+Users -> new.ycombinator.com style (no need for email)
+Users can have channels for their scenarios
+Put warnings on inappropriate journeys in archives
