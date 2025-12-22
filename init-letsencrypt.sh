@@ -16,6 +16,10 @@ if [ -z "$DOMAIN" ]; then
     exit 0
 fi
 
+# Use the first domain for the certificate directory path
+export CERT_DOMAIN="${domains[0]}"
+export DOMAIN
+
 if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/ssl-dhparams.pem" ]; then
   echo "### Downloading recommended TLS parameters ..."
   mkdir -p "$data_path/conf"
@@ -24,9 +28,9 @@ if [ ! -e "$data_path/conf/options-ssl-nginx.conf" ] || [ ! -e "$data_path/conf/
   echo
 fi
 
-echo "### Creating dummy certificate for $domains ..."
-path="/etc/letsencrypt/live/$domains"
-mkdir -p "$data_path/conf/live/$domains"
+echo "### Creating dummy certificate for $CERT_DOMAIN ..."
+path="/etc/letsencrypt/live/$CERT_DOMAIN"
+mkdir -p "$data_path/conf/live/$CERT_DOMAIN"
 docker-compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:$rsa_key_size -days 1\
     -keyout '$path/privkey.pem' \
@@ -35,12 +39,13 @@ docker-compose run --rm --entrypoint "\
 echo
 
 echo "### Starting nginx ..."
+# Pass CERT_DOMAIN to nginx as well if needed, but we'll use a template
 docker-compose up --force-recreate -d nginx
 echo
 
-echo "### Deleting dummy certificate for $domains ..."
+echo "### Deleting dummy certificate for $CERT_DOMAIN ..."
 docker-compose run --rm --entrypoint "\
-  rm -rf /etc/letsencrypt/live/$domains" certbot
+  rm -rf /etc/letsencrypt/live/$CERT_DOMAIN" certbot
 echo
 
 echo "### Requesting Let's Encrypt certificate for $domains ..."

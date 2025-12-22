@@ -43,11 +43,13 @@ services:
       - "80:80"
       - "443:443"
     volumes:
+      - ./nginx/templates:/etc/nginx/templates
       - ./nginx/conf:/etc/nginx/conf.d
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
     environment:
       - DOMAIN=${DOMAIN:-localhost}
+      - CERT_DOMAIN=${CERT_DOMAIN:-localhost}
     depends_on:
       - app
 
