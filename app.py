@@ -63,4 +63,4 @@ elif page == "Propose New Choice":
     render_propose_page(CATEGORIES)
 
 elif page == "Curate (Admin)":
-    render_curate_page()
+    render_curate_page(CATEGORIES)

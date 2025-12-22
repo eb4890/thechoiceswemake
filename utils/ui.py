@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 import utils.services as services
 from utils.llm import call_llm
 from utils.db import conn
@@ -106,7 +107,10 @@ PACING:
 - Allow pauses and uncertainty
 """
     if st.button("🚀 Begin Your Journey", type="primary", use_container_width=True):
-        st.session_state.messages = [{"role": "system", "content": prompt_prefix + scenario["prompt"]}]
+        st.session_state.messages = [
+            {"role": "system", "content": prompt_prefix + scenario["prompt"]},
+            {"role": "assistant", "content": scenario["opening_scene"]}
+        ]
         st.session_state.current_scenario = scenario_key
         st.session_state.current_model = model_id
         st.session_state.play_phase = "roleplay"
@@ -259,6 +263,13 @@ def render_play_page(scenarios):
     if "play_phase" not in st.session_state:
         st.session_state.play_phase = "setup"
 
+    # Show Soundtrack link if available and journey has begun
+    if st.session_state.play_phase != "setup" and "current_scenario" in st.session_state:
+        scenario = scenarios.get(st.session_state.current_scenario)
+        if scenario and scenario.get("soundtrack"):
+            st.sidebar.divider()
+            st.sidebar.link_button("🎵 Recommended Soundtrack", scenario["soundtrack"], use_container_width=True)
+
     # Route to fragments based on phase
     if st.session_state.play_phase == "setup":
         render_setup_fragment(scenarios)
@@ -301,6 +312,8 @@ def render_propose_page(categories):
     with st.form("proposal_form"):
         title = st.text_input("Title (unique and evocative)", max_chars=100)
         description = st.text_area("Short description (shown in menu)", height=100, max_chars=300)
+        opening_scene = st.text_area("Opening Scene (the first text the user sees)", height=150, max_chars=1000)
+        soundtrack = st.text_input("Soundtrack Link (YouTube, Spotify, etc.)", help="Link to music or ambiance for this scenario.")
         prompt = st.text_area("Full system prompt (RPG instructions)", height=400, max_chars=4000)
         author = st.text_input("Your name or pseudonym (optional)", max_chars=50)
         category = st.selectbox("Category", options=categories)
@@ -317,8 +330,8 @@ def render_propose_page(categories):
 
         submitted = st.form_submit_button("Submit for Review")
         if submitted:
-            if not (title and description and prompt):
-                st.error("Title, description, and prompt are required.")
+            if not (title and description and prompt and opening_scene):
+                st.error("Title, description, prompt, and opening scene are required.")
             else:
                 release_date = None
                 if embargo_option != "Immediate":
@@ -331,24 +344,26 @@ def render_propose_page(categories):
                         prompt.strip(),
                         author.strip() or None, 
                         category, 
-                        release_date
+                        release_date,
+                        opening_scene.strip(),
+                        soundtrack.strip() or None
                     )
                     st.success("Submitted! It will remain private until approved and any embargo expires.")
                     st.balloons()
                 except Exception:
                     st.error("Submission failed — likely duplicate title.")
 
-def render_curate_page():
+def render_curate_page(categories):
     st.header("Curation & Moderation")
     password_input = st.text_input("Admin Password", type="password")
-    expected_hash = st.secrets.get("ADMIN_PASSWORD_HASH", "")
+    expected_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
     
     if expected_hash and hashlib.sha256(password_input.encode()).hexdigest() == expected_hash:
         all_entries = conn.query("""
-            SELECT 'Approved' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            SELECT 'Approved' as status, id, title, description, prompt, author, submitted_at, release_date, category, opening_scene, soundtrack
             FROM scenarios
             UNION ALL
-            SELECT 'Pending' as status, id, title, description, prompt, author, submitted_at, release_date, category
+            SELECT 'Pending' as status, id, title, description, prompt, author, submitted_at, release_date, category, opening_scene, soundtrack
             FROM pending_scenarios WHERE status = 'pending'
             ORDER BY submitted_at DESC
         """)
@@ -367,12 +382,19 @@ def render_curate_page():
                 
                 with st.expander(f"{status_badge} {row.title} ({row.category or 'Uncategorized'}) — by {row.author or 'Anonymous'} {release_note}"):
                     st.write("**Description:**", row.description)
+                    st.write("**Opening Scene:**", row.opening_scene)
+                    st.write("**Soundtrack:**", row.soundtrack or "None")
                     st.code(row.prompt, language="text")
                     
+                    if st.button("📝 Edit", key=f"edit_btn_{row.id}"):
+                        st.session_state.editing_scenario_id = row.id
+                        st.session_state.editing_scenario_status = row.status
+                        st.rerun()
+
                     if row.status == "Pending":
                         col1, col2 = st.columns(2)
                         if col1.button("Approve", key=f"app_{row.id}"):
-                            services.approve_scenario(row.id, row.title, row.description, row.prompt, row.author, row.category, row.release_date)
+                            services.approve_scenario(row.id, row.title, row.description, row.prompt, row.author, row.category, row.release_date, row.opening_scene, row.soundtrack)
                             st.success("Approved")
                             st.rerun()
                         if col2.button("Reject", key=f"rej_{row.id}"):
@@ -385,10 +407,69 @@ def render_curate_page():
                             services.release_scenario_early(row.id)
                             st.success("Released early")
                             st.rerun()
+
+        # Handle Editing Modal-like view
+        if "editing_scenario_id" in st.session_state:
+            scenario_to_edit = None
+            for row in all_entries.itertuples():
+                if row.id == st.session_state.editing_scenario_id:
+                    scenario_to_edit = row
+                    break
+            
+            if scenario_to_edit:
+                st.divider()
+                edit_scenario_fragment(scenario_to_edit, categories)
+
     elif password_input:
         st.error("Incorrect password.")
     else:
         st.info("Enter admin password to access curation tools.")
+
+@st.fragment
+def edit_scenario_fragment(row, categories):
+    st.subheader(f"Editing: {row.title}")
+    
+    with st.form("edit_form"):
+        new_title = st.text_input("Title", value=row.title)
+        new_desc = st.text_area("Description", value=row.description, height=100)
+        new_opening = st.text_area("Opening Scene", value=row.opening_scene, height=150)
+        new_soundtrack = st.text_input("Soundtrack Link", value=row.soundtrack or "")
+        new_prompt = st.text_area("System Prompt", value=row.prompt, height=300)
+        new_author = st.text_input("Author", value=row.author or "")
+        
+        # Category handling (ensure it's in list)
+        cat_options = categories if row.category in categories else [row.category] + categories
+        new_cat = st.selectbox("Category", options=cat_options, index=cat_options.index(row.category) if row.category in cat_options else 0)
+        
+        # Date handling
+        new_release_date = st.date_input("Release Date (optional)", value=row.release_date if row.release_date else None)
+        
+        col1, col2 = st.columns(2)
+        if col1.form_submit_button("Save Changes", type="primary"):
+            try:
+                services.update_scenario(
+                    row.id, 
+                    row.status,
+                    new_title.strip(),
+                    new_desc.strip(),
+                    new_prompt.strip(),
+                    new_author.strip() or None,
+                    new_cat,
+                    new_release_date,
+                    new_opening.strip(),
+                    new_soundtrack.strip() or None
+                )
+                st.success("Changes saved!")
+                if "editing_scenario_id" in st.session_state:
+                    del st.session_state.editing_scenario_id
+                st.rerun(scope="app")
+            except Exception as e:
+                st.error(f"Error saving: {e}")
+        
+        if col2.form_submit_button("Cancel"):
+            if "editing_scenario_id" in st.session_state:
+                del st.session_state.editing_scenario_id
+            st.rerun(scope="app")
 
 @st.fragment
 def render_recorded_fragment():

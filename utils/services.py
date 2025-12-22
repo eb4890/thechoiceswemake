@@ -43,23 +43,33 @@ def record_journey(scenario_title, model_name, choice_text, summary, author):
         VALUES (%s, %s, %s, %s, %s)
     """, params=(scenario_title, model_name, choice_text, summary, author))
 
-def propose_scenario(title, description, prompt, author, category, release_date):
+def propose_scenario(title, description, prompt, author, category, release_date, opening_scene, soundtrack):
     execute_write("""
         INSERT INTO pending_scenarios 
-        (title, description, prompt, author, category, release_date)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    """, params=(title, description, prompt, author, category, release_date))
+        (title, description, prompt, author, category, release_date, opening_scene, soundtrack)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    """, params=(title, description, prompt, author, category, release_date, opening_scene, soundtrack))
 
-def approve_scenario(scenario_id, title, description, prompt, author, category, release_date):
+def approve_scenario(scenario_id, title, description, prompt, author, category, release_date, opening_scene, soundtrack):
     execute_write("""
-        INSERT INTO scenarios (title, description, prompt, author, category, release_date)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO scenarios (title, description, prompt, author, category, release_date, opening_scene, soundtrack)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (title) DO NOTHING
-    """, params=(title, description, prompt, author, category, release_date))
+    """, params=(title, description, prompt, author, category, release_date, opening_scene, soundtrack))
     execute_write("UPDATE pending_scenarios SET status = 'approved' WHERE id = %s", params=(scenario_id,))
 
 def reject_scenario(scenario_id):
     execute_write("UPDATE pending_scenarios SET status = 'rejected' WHERE id = %s", params=(scenario_id,))
+
+def update_scenario(scenario_id, status, title, description, prompt, author, category, release_date, opening_scene, soundtrack):
+    """Updates a scenario in either the live or pending table based on its status."""
+    table = "scenarios" if status == "Approved" else "pending_scenarios"
+    execute_write(f"""
+        UPDATE {table} 
+        SET title = %s, description = %s, prompt = %s, author = %s, 
+            category = %s, release_date = %s, opening_scene = %s, soundtrack = %s
+        WHERE id = %s
+    """, params=(title, description, prompt, author, category, release_date, opening_scene, soundtrack, scenario_id))
 
 def release_scenario_early(scenario_id):
     execute_write("UPDATE scenarios SET release_date = NOW() WHERE id = %s", params=(scenario_id,))
@@ -76,7 +86,7 @@ def load_categories():
 def load_scenarios():
     now = datetime.now()
     df = conn.query("""
-        SELECT title, description, prompt, author, plays, category 
+        SELECT title, description, prompt, author, plays, category, opening_scene, soundtrack
         FROM scenarios 
         WHERE (release_date IS NULL OR release_date <= :time)
         ORDER BY submitted_at DESC
@@ -87,7 +97,9 @@ def load_scenarios():
         "prompt": row.prompt,
         "author": row.author or "Anonymous",
         "plays": row.plays or 0,
-        "category": row.category or "Uncategorized"
+        "category": row.category or "Uncategorized",
+        "opening_scene": row.opening_scene,
+        "soundtrack": row.soundtrack
     } for _, row in df.iterrows()}
     
     # Add Black Dragon meta-scenario
@@ -116,5 +128,7 @@ Encourage reflection on the weight of choices across timelines. Remain cryptic y
         "prompt": prompt,
         "author": "The Void",
         "plays": 0,
-        "category": "Meta"
+        "category": "Meta",
+        "opening_scene": "The Black Dragon uncoils its obsidian length, its eyes like burning coals. 'You seek perspective on the choices recorded here?' it rumbles. 'Speak, and let us weigh the threads of fate together.'",
+        "soundtrack": "https://www.orangefreesounds.com/wp-content/uploads/2020/02/Deep-hum-sound.mp3"
     }

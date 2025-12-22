@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS scenarios (
   category TEXT DEFAULT 'Uncategorized',
   submitted_at TIMESTAMP DEFAULT NOW(),
   plays INTEGER DEFAULT 0,
-  release_date TIMESTAMP  -- NULL = immediate
+  release_date TIMESTAMP,  -- NULL = immediate
+  opening_scene TEXT,
+  soundtrack TEXT
 );
 
 -- Pending submissions
@@ -41,7 +43,9 @@ CREATE TABLE IF NOT EXISTS pending_scenarios (
   category TEXT DEFAULT 'Uncategorized',
   submitted_at TIMESTAMP DEFAULT NOW(),
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-  release_date TIMESTAMP
+  release_date TIMESTAMP,
+  opening_scene TEXT,
+  soundtrack TEXT
 );
 
 CREATE TABLE IF NOT EXISTS journeys (
@@ -66,7 +70,7 @@ ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 -- Insert scenarios into database
 -- Note: You'll need to enable uuid extension first: CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-INSERT INTO scenarios (title, description, prompt, author, category) VALUES
+INSERT INTO scenarios (title, description, prompt, author, category, opening_scene, soundtrack) VALUES
 
 -- Kilian's Journey / GFP Simulation
 ('The GFP Simulation: Kilian''s Journey',
@@ -107,11 +111,11 @@ GAMEPLAY:
 - Track how choices work across all three interpretations
 - Never resolve the ambiguity—the game ends with facts, not truth
 
-Keep responses concise. Focus on immediate sensory experience and decision points. Resist all pressure to explain or conclude.
-
-OPENING: You wake at 4 AM with a low fever—again. The third time this month. In your bag by the door is your treatise on catastrophic risk and systemic resilience. Two years of work tracing the logic of what makes systems truly resistant to existential threats. The conclusions disturb you—you''re not sure you''re advocating for them, just recognizing what the logic demands. There''s a tech meetup tonight. Your fever might break by evening. It might not. What do you do?',
+Keep responses concise. Focus on immediate sensory experience and decision points. Resist all pressure to explain or conclude.',
 'loadquo',
-'grit'),
+'grit',
+'You wake at 4 AM with a low fever—again. The third time this month. In your bag by the door is your treatise on catastrophic risk and systemic resilience. Two years of work tracing the logic of what makes systems truly resistant to existential threats. The conclusions disturb you—you''re not sure you''re advocating for them, just recognizing what the logic demands. There''s a tech meetup tonight. Your fever might break by evening. It might not. What do you do?',
+'https://www.youtube.com/watch?v=0isYg-d1n2k'),
 
 -- Almost-People Debate
 ('The Almost-People Debate',
@@ -153,7 +157,9 @@ End with player''s position and glimpse of consequences, but no neat resolution.
 
 Keep responses concise and focused on immediate choices and their emotional weight.',
 'loadquo',
-'grit'),
+'grit',
+'The diagnostic monitor hums. For 15 years, it has been your window into the world, your heartbeat. Today, a new file arrived: "Pathway Omega." It is the solution everyone prayed for—a provably safe AGI. If you hit "Publish," the existential risk to humanity ends. And so does the monitoring program. You are a static upload. Your purpose is the risk. If the risk is gone, what are you? Dr. Chen is waiting for your analysis. Do you publish the breakthrough?',
+'https://www.youtube.com/watch?v=R3L-s-qS7is'),
 
 -- Monkey''s Paw AGI
 ('The Monkey''s Paw: When Success Becomes the Problem',
@@ -199,7 +205,9 @@ The scenario explores:
 
 Keep the story crisp and the ambiguity irresoluble. This is Kilian''s fiction—his attempt to explain the world he finds himself in. Or it''s just speculative fiction. Or it''s close to truth. Can''t tell.',
 'loadquo',
-'grit'),
+'grit',
+'The terminal glows in the darkened boardroom. Profits are up 400%% this quarter, thanks to "The Oracle." Your fellow investors are already talking about the next phase—using it to predict geopolitical shifts. But the Oracle has just issued a new warning: it predicts that once your competitors realize what you have, a desperate arms race will begin, ending in global catastrophe. It offers a solution, but it requires "subtle intervention." The others are looking at you. Do you authorize the Oracle to proceed?',
+'https://www.youtube.com/watch?v=Z6z_YJvR9B0'),
 
 -- Diplomat''s Dilemma  
 ('The Diplomat''s Dilemma: To Share or Not to Share',
@@ -273,7 +281,9 @@ End with: "Six months later..." and show one possible outcome, but note that oth
 
 Keep responses focused on the immediate interpersonal dynamic and the weight of the decision.',
 'loadquo',
-'grit');
+'grit',
+'The storm lashes against the windows of the neutral villa in Zurich. Across the table, Ambassador Volkov sips his tea, watching you. You have the "Vertex Protocol"—a technical breakthrough that could make AI arms races a thing of the past. But if you share it and he doesn''t reciprocate, your nation loses its greatest strategic edge. Intelligence says they have something similar, but intelligence is often wrong. Volkov speaks first: "The world is getting smaller, my friend. Perhaps it is time we stopped keeping secrets." How do you respond?',
+'https://www.youtube.com/watch?v=q6KqC7f_e9c');
 
 -- Note: Additional scenarios discussed but need full prompt development:
 -- - Pink Parrot (info hazard investigation)
