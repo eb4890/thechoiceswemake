@@ -307,8 +307,26 @@ def render_archive_page():
     except Exception as e:
         st.error(f"Could not load journeys: {e}")
 
+def check_admin_auth():
+    """Helper to check if the user is authenticated as an admin."""
+    password_input = st.text_input("Admin Password", type="password")
+    expected_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
+    
+    if expected_hash and hashlib.sha256(password_input.encode()).hexdigest() == expected_hash:
+        return True
+    elif password_input:
+        st.error("Incorrect password.")
+        return False
+    else:
+        st.info("Enter admin password to access this section.")
+        return False
+
 def render_propose_page(categories):
     st.header("Propose a New Choice")
+    
+    if not check_admin_auth():
+        return
+
     st.write("Submit a new ethical dilemma to the archive. Sensitive contributions may be embargoed.")
 
     with st.form("proposal_form"):
@@ -357,10 +375,8 @@ def render_propose_page(categories):
 
 def render_curate_page(categories):
     st.header("Curation & Moderation")
-    password_input = st.text_input("Admin Password", type="password")
-    expected_hash = os.getenv("ADMIN_PASSWORD_HASH", "")
     
-    if expected_hash and hashlib.sha256(password_input.encode()).hexdigest() == expected_hash:
+    if check_admin_auth():
         all_entries = conn.query("""
             SELECT 'Approved' as status, id, title, description, prompt, author, submitted_at, release_date, category, opening_scene, soundtrack
             FROM scenarios
@@ -368,7 +384,7 @@ def render_curate_page(categories):
             SELECT 'Pending' as status, id, title, description, prompt, author, submitted_at, release_date, category, opening_scene, soundtrack
             FROM pending_scenarios WHERE status = 'pending'
             ORDER BY submitted_at DESC
-        """)
+        """, ttl=0)
 
         if all_entries.empty:
             st.success("No pending or approved scenarios.")

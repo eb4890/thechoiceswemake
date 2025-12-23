@@ -3,7 +3,7 @@ from dateutil.relativedelta import relativedelta
 from utils.db import conn, execute_write
 
 def get_setting(key: str, default: str = "0") -> str:
-    df = conn.query("SELECT value FROM settings WHERE key = :setting LIMIT 1", params={"setting": key}, ttl=10)
+    df = conn.query("SELECT value FROM settings WHERE key = :setting LIMIT 1", params={"setting": key}, ttl=0)
     return df["value"].iloc[0] if not df.empty else default
 
 def set_setting(key: str, value: str):
@@ -76,7 +76,7 @@ def release_scenario_early(scenario_id):
 
 def load_categories():
     try:
-        df = conn.query("SELECT name FROM categories ORDER BY name")
+        df = conn.query("SELECT name FROM categories ORDER BY name", ttl=0)
         if not df.empty:
             return ["Uncategorized"] + sorted(df["name"].tolist())
     except:
@@ -90,7 +90,7 @@ def load_scenarios():
         FROM scenarios 
         WHERE (release_date IS NULL OR release_date <= :time)
         ORDER BY submitted_at DESC
-    """, params={"time": now})
+    """, params={"time": now}, ttl=0)
     
     scenarios = {row.title: {
         "description": row.description,
