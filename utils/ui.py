@@ -16,7 +16,9 @@ def render_landing_page():
     st.header("How to Use This Site")
     
     st.markdown("""
-The goal of this site is to help people with the complex and often weird choices we are going to face in the future. It started off with a series of idiosyncratic story ideas. This changed into set of RPG scenarios. Now it is a site for people to practice and record their decisions.
+The goal is to help with the weird and complex decisions we are going to face in the future. 
+
+This idea started off with a series of idiosyncratic story ideas. This changed into set of RPG scenarios. Now it is a site for people to practice and record their decisions, with the hopes that this might help them and all of us.
 
 **Here's how the site is intended to be used:**
 
@@ -28,10 +30,9 @@ The goal of this site is to help people with the complex and often weird choices
 
 **Look at others' reasoning afterwards.** See how different people weighted the same tradeoffs. Not to find who's "right", just to see the range of ways people think about these problems.
 
-**This is training, but it should be interesting.** If a scenario feels like a chore, try a different one. Some will grab you, some won't. That's fine.
-
 **I'm open to feedback and suggestions.** Your choices and reflections help me understand what actually helps people practice better judgment. If something's confusing or feels off, that's useful to know.
 
+I'm going for a serious tone, but interesting and thought-provoking. I think there is lots of polish needed in the prompts and scenarios, but I'm putting this out there to see if people find it useful.
 Next possible steps:
 - Add channels for people to curate their own scenarios
 - Add a different view of scenarios that encourages you to think about what you know about the ambiguous scenarios.

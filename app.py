@@ -23,7 +23,7 @@ SCENARIOS = load_scenarios()
 # --- UI ---
 st.set_page_config(page_title="The Choices We Make", layout="centered")
 st.title("The Choices We Make")
-st.markdown("*Practicing on challenging problems for individual and social improvement*")
+st.markdown("*A social experiment in recording choices for difficult problems*")
 
 # Navigation State Management
 nav_options = ["How it Works", "Play", "Archive", "Propose New Choice", "Curate (Admin)"]
