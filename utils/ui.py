@@ -108,6 +108,7 @@ PACING:
 - Don't rush through the scenario
 - Let tension build naturally
 - Allow pauses and uncertainty
+- Don't present options, except if characters do
 """
     if st.button("🚀 Begin Your Journey", type="primary", use_container_width=True):
         st.session_state.messages = [
