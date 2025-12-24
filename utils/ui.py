@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import os
 import utils.services as services
 from utils.llm import call_llm
@@ -40,6 +41,12 @@ Next possible steps:
     
     if st.button("🚀 Ready to Begin"):
         st.session_state.current_page = "Play"
+        st.rerun()
+
+    # Hidden Easter Egg
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    if st.button("🐱", key="cat_easter_egg"):
+        st.session_state.current_page = "CatGame"
         st.rerun()
 
 def render_sidebar_info():
@@ -511,3 +518,270 @@ def render_recorded_fragment():
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun(scope="app")
+
+def render_cat_game():
+    st.subheader("🐱 Secret Cat Dimension")
+    if st.button("⬅️ Back to Decisions", use_container_width=True):
+        st.session_state.current_page = "How it Works"
+        st.rerun()
+
+    game_html = """
+    <div id="game-container" style="text-align: center; background: #000; color: #fff; padding: 20px; border-radius: 10px; font-family: sans-serif;">
+        <h3 id="status">Charge up to enter the bubble!</h3>
+        <canvas id="gameCanvas" width="600" height="500" style="border: 2px solid #555; background: #111; cursor: crosshair;"></canvas>
+        <div style="margin-top: 10px;">
+            <span id="score">Score: 0</span> | 
+            <span id="charge">Charge: 0%</span> | 
+            <span id="weight">Cat Status: Normal</span>
+        </div>
+        <div id="controls" style="margin-top: 10px; display: none;">
+            <button onclick="resetGame()" style="padding: 10px 20px; background: #00f2ff; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Try Another Life</button>
+        </div>
+    </div>
+
+    <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const scoreEl = document.getElementById('score');
+    const chargeEl = document.getElementById('charge');
+    const weightEl = document.getElementById('weight');
+    const controlsEl = document.getElementById('controls');
+
+    let cat, snacks, bubble, mouse, gameState;
+
+    function init() {
+        cat = { x: 300, y: 100, vx: 0, vy: 0, size: 30, charge: 0, score: 0, isFat: false, scene: 'void' };
+        snacks = [];
+        bubble = { x: 300, y: 350, r: 80 };
+        mouse = { x: 0, y: 0 };
+        gameState = 'playing';
+        statusEl.innerText = "Charge up to enter the bubble!";
+        scoreEl.innerText = "Score: 0";
+        chargeEl.innerText = "Charge: 0%";
+        weightEl.innerText = "Cat Status: Normal";
+        controlsEl.style.display = 'none';
+        for(let i=0; i<10; i++) spawnFoodSnack();
+        for(let i=0; i<10; i++) spawnChargeSnack();
+    }
+
+    const snackTypes = [
+        { char: '🍔', type: 'fat' },
+        { char: '🍟', type: 'fat' },
+        { char: '⚡', type: 'charge' },
+        { char: '⚡', type: 'charge' }
+    ];
+
+    function spawnFoodSnack() {
+        const type = snackTypes[Math.floor(Math.random() * snackTypes.length/2)];
+        snacks.push({
+            x: Math.random() * (canvas.width - 40) + 20,
+            y: Math.random() * 250 + 20,
+            char: type.char,
+            type: type.type
+        });
+    }
+    function spawnChargeSnack() {
+        const type = snackTypes[Math.floor(Math.random() * snackTypes.length/2)+2];
+        snacks.push({
+            x: Math.random() * (canvas.width - 40) + 20,
+            y: Math.random() * 250 + 20,
+            char: type.char,
+            type: type.type
+        });
+    }
+
+    function resetGame() {
+        init();
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+    });
+
+    canvas.addEventListener('click', (e) => {
+        if (cat.scene === 'city') {
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            // Fish Shop Area (roughly 50-150 range)
+            if (clickX > 50 && clickX < 150 && clickY > 250 && clickY < 350) {
+                cat.scene = 'fish_delivery';
+                statusEl.innerText = "Delivered! A fish for every friend.";
+                controlsEl.style.display = 'block';
+            }
+            // Knitting Shop Area (roughly 400-500 range)
+            if (clickX > 400 && clickX < 500 && clickY > 250 && clickY < 350) {
+                cat.scene = 'knitting';
+                statusEl.innerText = "Warm yarn, warm hearth, old friends.";
+                controlsEl.style.display = 'block';
+            }
+        }
+    });
+
+    function update() {
+        if (cat.scene !== 'void') return;
+
+        // Physics: Nudge away from cursor
+        const dx = cat.x - mouse.x;
+        const dy = cat.y - mouse.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 100) {
+            const force = (100 - dist) / 50;
+            cat.vx += (dx / dist) * force;
+            cat.vy += (dy / dist) * force;
+        }
+
+        // Apply velocities
+        cat.x += cat.vx;
+        cat.y += cat.vy;
+
+        // Friction
+        cat.vx *= 0.95;
+        cat.vy *= 0.95;
+
+        // Boundaries
+        if (cat.x < 20) { cat.x = 20; cat.vx *= -0.5; }
+        if (cat.x > canvas.width - 20) { cat.x = canvas.width - 20; cat.vx *= -0.5; }
+        if (cat.y < 20) { cat.y = 20; cat.vy *= -0.5; }
+        if (cat.y > canvas.height - 20) { cat.y = canvas.height - 20; cat.vy *= -0.5; }
+
+        // Snack collision
+        snacks = snacks.filter(s => {
+            const sdx = cat.x - s.x;
+            const sdy = cat.y - s.y;
+            const sdist = Math.sqrt(sdx * sdx + sdy * sdy);
+            if (sdist < cat.size) {
+                if (s.type === 'fat') {
+                    cat.size += 5;
+                    cat.isFat = true;
+                    weightEl.innerText = "Cat Status: CHONKY";
+                } else {
+                    cat.charge = Math.min(100, cat.charge + 10);
+                    chargeEl.innerText = "Charge: " + cat.charge + "%";
+                }
+                cat.score += 10;
+                scoreEl.innerText = "Score: " + cat.score;
+                return false;
+            }
+            return true;
+        });
+
+        // Bubble interaction
+        const bdx = cat.x - bubble.x;
+        const bdy = cat.y - bubble.y;
+        const bdist = Math.sqrt(bdx * bdx + bdy * bdy);
+        
+        if (bdist < bubble.r + cat.size/2) {
+            if (cat.charge >= 100) {
+                cat.scene = 'city';
+                statusEl.innerText = "Welcome to Cat City! Pick a shop to visit.";
+            } else {
+                // Bounce off bubble if not charged
+                const overlap = (bubble.r + cat.size/2) - bdist;
+                cat.x += (bdx / bdist) * overlap;
+                cat.y += (bdy / bdist) * overlap;
+                cat.vx += (bdx / bdist) * 2;
+                cat.vy += (bdy / bdist) * 2;
+            }
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (cat.scene === 'city') {
+            // Draw City
+            ctx.fillStyle = "#222";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Shops
+            ctx.font = "40px Arial";
+            ctx.fillText("🐟", 90, 300);
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText("Fish Shop", 90, 340);
+            
+            ctx.font = "40px Arial";
+            ctx.fillText("🧶", 440, 300);
+            ctx.font = "14px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText("Knitting Shop", 440, 340);
+
+            // Ground
+            ctx.fillStyle = "#333";
+            ctx.fillRect(0, 400, canvas.width, 100);
+            
+            // Happy Cat
+            ctx.font = cat.size + "px Arial";
+            ctx.fillText("🐱", canvas.width/2 - cat.size/2, 380);
+            ctx.font = "20px Arial";
+            ctx.fillStyle = "#00f2ff";
+            ctx.fillText("Choose your new life...", canvas.width/2 - 90, 200);
+        } else if (cat.scene === 'fish_delivery') {
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "60px Arial";
+            ctx.fillText("🎒🐟", 100, 300);
+            ctx.font = "60px Arial";
+            ctx.fillText("🐱", 200, 300);
+            ctx.font = "24px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText("You are a professional delivery cat now.", 100, 400);
+        } else if (cat.scene === 'knitting') {
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = "80px Arial";
+            ctx.fillText("👵🧶", 100, 300);
+            ctx.font = "60px Arial";
+            ctx.fillText("💤🐱", 300, 300);
+            ctx.font = "24px Arial";
+            ctx.fillStyle = "#fff";
+            ctx.fillText("A life of naps and yarn. Perfection.", 100, 400);
+        } else {
+            // Draw Void / Top Layer
+            ctx.fillStyle = "#111";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Bubble
+            ctx.beginPath();
+            ctx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+            ctx.strokeStyle = cat.charge >= 100 ? "#00ff00" : "#00f2ff";
+            ctx.lineWidth = 3;
+            ctx.stroke();
+            ctx.fillStyle = cat.charge >= 100 ? "rgba(0, 255, 0, 0.1)" : "rgba(0, 242, 255, 0.1)";
+            ctx.fill();
+            
+            // City preview inside bubble
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(bubble.x, bubble.y, bubble.r, 0, Math.PI * 2);
+            ctx.clip();
+            ctx.font = "20px Arial";
+            ctx.fillText("🐟", bubble.x - 20, bubble.y);
+            ctx.fillText("🧶", bubble.x + 10, bubble.y + 10);
+            ctx.restore();
+
+            // Draw Snacks
+            ctx.font = "24px Arial";
+            snacks.forEach(s => {
+                ctx.fillText(s.char, s.x - 12, s.y + 12);
+            });
+
+            // Draw Cat
+            ctx.font = cat.size + "px Arial";
+            ctx.fillText("🐱", cat.x - cat.size/2, cat.y + cat.size/2);
+        }
+
+        update();
+        requestAnimationFrame(draw);
+    }
+
+    init();
+    draw();
+    </script>
+    """
+    components.html(game_html, height=700)
